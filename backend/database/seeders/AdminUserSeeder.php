@@ -22,19 +22,29 @@ class AdminUserSeeder extends Seeder
             return;
         }
 
-        // Create default admin user
+        $email = config('nexcreate.admin_email');
+        $password = config('nexcreate.admin_password');
+
+        // No hardcoded fallback: a default password in a seeder is a backdoor
+        // the moment it runs in a deployed environment.
+        if (!$password) {
+            $this->command->warn('ADMIN_PASSWORD is not set — skipping admin user creation.');
+            $this->command->warn('Set ADMIN_EMAIL and ADMIN_PASSWORD in .env and re-run: php artisan db:seed --class=AdminUserSeeder');
+            return;
+        }
+
         User::updateOrCreate(
-            ['email' => 'admin@nexcreate.no'],
+            ['email' => $email],
             [
                 'name' => 'Admin',
                 'username' => 'admin',
-                'email' => 'admin@nexcreate.no',
-                'password' => Hash::make('admin123'),
+                'email' => $email,
+                'password' => Hash::make($password),
                 'role_id' => $adminRole->id,
                 'email_verified_at' => now(),
             ]
         );
 
-        $this->command->info('Default admin user created: admin@nexcreate.no / admin123');
+        $this->command->info("Admin user created: {$email}");
     }
 }

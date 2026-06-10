@@ -58,7 +58,7 @@ class PaymentService
                             'name' => $order->service->title,
                             'description' => "Order #{$order->id} - {$order->service->title}",
                         ],
-                        'unit_amount' => (int) ($amount * 100), // Convert to øre
+                        'unit_amount' => (int) round($amount * 100), // Convert to øre (round to avoid float truncation)
                     ],
                     'quantity' => 1,
                 ]],
@@ -125,11 +125,24 @@ class PaymentService
         try {
             DB::beginTransaction();
 
-            // Find payment by session ID
-            $payment = Payment::where('stripe_checkout_session_id', $session->id)->first();
+            // Find payment by session ID (locked so concurrent webhook retries serialize)
+            $payment = Payment::where('stripe_checkout_session_id', $session->id)
+                ->lockForUpdate()
+                ->first();
 
             if (!$payment) {
                 throw new Exception('Payment not found for session: ' . $session->id);
+            }
+
+            // Idempotency: Stripe retries webhooks — never process the same payment twice.
+            if ($payment->status === Payment::STATUS_PAID) {
+                DB::commit();
+
+                return [
+                    'success' => true,
+                    'message' => 'Payment already processed',
+                    'payment_id' => $payment->id,
+                ];
             }
 
             // Calculate available date (after payout delay)
@@ -175,7 +188,18 @@ class PaymentService
     protected function handleChargeRefunded(object $charge): array
     {
         try {
-            $payment = Payment::where('stripe_payment_id', $charge->payment_intent)->first();
+            // Guard against null payment_intent: where('col', null) becomes
+            // WHERE col IS NULL and would match an unrelated pending payment.
+            $paymentIntent = $charge->payment_intent ?? null;
+
+            if (!$paymentIntent) {
+                return [
+                    'success' => true,
+                    'message' => 'Charge has no payment intent; ignored',
+                ];
+            }
+
+            $payment = Payment::where('stripe_payment_id', $paymentIntent)->first();
 
             if ($payment) {
                 $payment->update(['status' => Payment::STATUS_REFUNDED]);
@@ -265,9 +289,6 @@ class PaymentService
     public function requestPayout(User $creator, float $amount): array
     {
         try {
-            // Get balance
-            $balance = $this->getCreatorBalance($creator);
-
             // Check minimum payout
             $minimumPayout = config('nexcreate.minimum_payout', 100);
             if ($amount < $minimumPayout) {
@@ -277,27 +298,35 @@ class PaymentService
                 ];
             }
 
-            // Check available balance
-            if ($amount > $balance['available']) {
+            // The balance check and payout creation must be atomic: without a
+            // lock, two concurrent requests both read the same balance and
+            // together withdraw more than is available.
+            return DB::transaction(function () use ($creator, $amount) {
+                // Per-creator mutex: serializes concurrent payout requests.
+                User::where('id', $creator->id)->lockForUpdate()->first();
+
+                $balance = $this->getCreatorBalance($creator);
+
+                if ($amount > $balance['available']) {
+                    return [
+                        'success' => false,
+                        'error' => 'Insufficient available balance',
+                        'available' => $balance['available'],
+                    ];
+                }
+
+                $payout = Payout::create([
+                    'creator_id' => $creator->id,
+                    'amount' => $amount,
+                    'status' => Payout::STATUS_PENDING,
+                ]);
+
                 return [
-                    'success' => false,
-                    'error' => 'Insufficient available balance',
-                    'available' => $balance['available'],
+                    'success' => true,
+                    'message' => 'Payout request submitted successfully',
+                    'payout' => $payout,
                 ];
-            }
-
-            // Create payout request
-            $payout = Payout::create([
-                'creator_id' => $creator->id,
-                'amount' => $amount,
-                'status' => Payout::STATUS_PENDING,
-            ]);
-
-            return [
-                'success' => true,
-                'message' => 'Payout request submitted successfully',
-                'payout' => $payout,
-            ];
+            });
 
         } catch (Exception $e) {
             return [
@@ -390,6 +419,46 @@ class PaymentService
     }
 
     /**
+     * Verify onboarding status against the Stripe API and sync the local flag.
+     *
+     * Never trust the client: the return redirect only means the user came
+     * back from Stripe, not that onboarding actually finished.
+     *
+     * @param User $creator
+     * @return array
+     */
+    public function syncStripeOnboardingStatus(User $creator): array
+    {
+        try {
+            if (!$creator->hasStripeAccount()) {
+                return [
+                    'success' => false,
+                    'error' => 'No Stripe account found',
+                ];
+            }
+
+            $account = StripeAccount::retrieve($creator->stripe_account_id);
+
+            $isComplete = $account->details_submitted
+                && $account->charges_enabled
+                && $account->payouts_enabled;
+
+            $creator->update(['stripe_onboarding_complete' => $isComplete]);
+
+            return [
+                'success' => true,
+                'onboarding_complete' => $isComplete,
+            ];
+
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Process a payout via Stripe Transfer.
      *
      * @param Payout $payout
@@ -409,7 +478,7 @@ class PaymentService
 
             // Create transfer to connected account
             $transfer = Transfer::create([
-                'amount' => (int) ($payout->amount * 100), // Convert to øre
+                'amount' => (int) round($payout->amount * 100), // Convert to øre (round to avoid float truncation)
                 'currency' => config('stripe.currency', 'nok'),
                 'destination' => $creator->stripe_account_id,
                 'metadata' => [

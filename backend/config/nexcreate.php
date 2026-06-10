@@ -53,4 +53,17 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Initial Admin Account (Seeder)
+    |--------------------------------------------------------------------------
+    |
+    | Credentials for the AdminUserSeeder. There is intentionally no default
+    | password: if ADMIN_PASSWORD is not set, the seeder skips creation.
+    |
+    */
+
+    'admin_email' => env('ADMIN_EMAIL', 'admin@nexcreate.no'),
+    'admin_password' => env('ADMIN_PASSWORD'),
+
 ];

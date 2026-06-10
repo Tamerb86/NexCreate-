@@ -3,8 +3,6 @@
 # Complete stack: Laravel + Nginx + MySQL + Redis
 # =============================================================================
 
-version: '3.8'
-
 services:
   # =========================================================================
   # PHP-FPM Application Service
@@ -53,7 +51,8 @@ services:
     container_name: nexcreate-mysql
     restart: unless-stopped
     ports:
-      - "3306:3306"
+      # Bound to localhost only: never expose the DB to the network.
+      - "127.0.0.1:3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
       MYSQL_DATABASE: ${DB_DATABASE:-nexcreate}
@@ -74,7 +73,8 @@ services:
     container_name: nexcreate-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      # Bound to localhost only: never expose Redis to the network.
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     networks:

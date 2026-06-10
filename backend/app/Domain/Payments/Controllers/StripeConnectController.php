@@ -102,22 +102,47 @@ class StripeConnectController extends Controller
     {
         $user = $request->user();
 
-        if (!$user || !$user->hasStripeAccount()) {
+        // Authorization: only creators
+        if (!$user->isCreator()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden. Only creators can complete Stripe onboarding.',
+            ], 403);
+        }
+
+        if (!$user->hasStripeAccount()) {
             return response()->json([
                 'success' => false,
                 'message' => 'No Stripe account found.',
             ], 400);
         }
 
-        // In a real implementation, you would check the account status via Stripe API
-        // For now, we'll mark it as complete
-        $user->update(['stripe_onboarding_complete' => true]);
+        // Verify actual account status with Stripe — the redirect back from
+        // Stripe does not guarantee onboarding finished.
+        $result = $this->paymentService->syncStripeOnboardingStatus($user);
+
+        if (!$result['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to verify Stripe onboarding status.',
+            ], 502);
+        }
+
+        if (!$result['onboarding_complete']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Stripe onboarding is not complete yet. Please finish the onboarding steps at Stripe.',
+                'data' => [
+                    'can_receive_payouts' => false,
+                ],
+            ], 422);
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Stripe Connect onboarding completed.',
             'data' => [
-                'can_receive_payouts' => true,
+                'can_receive_payouts' => $user->fresh()->canReceivePayouts(),
             ],
         ]);
     }

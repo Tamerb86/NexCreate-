@@ -2,7 +2,7 @@
 
 **UGC + AI + Marketplace Platform**
 
-A complete, production-ready Laravel 11 application designed for the Norwegian UGC (User-Generated Content) market. Built with Docker for easy deployment anywhere.
+A complete, production-ready Laravel 12 application designed for the Norwegian UGC (User-Generated Content) market. Built with Docker for easy deployment anywhere.
 
 ---
 
@@ -37,7 +37,7 @@ A complete, production-ready Laravel 11 application designed for the Norwegian U
 
 | Component | Technology |
 |-----------|------------|
-| **Backend** | Laravel 11 |
+| **Backend** | Laravel 12 |
 | **PHP** | 8.3 |
 | **Database** | MySQL 8 |
 | **Cache** | Redis |
@@ -87,11 +87,22 @@ docker exec -it nexcreate-app composer install
 # Generate application key
 docker exec -it nexcreate-app php artisan key:generate
 
-# Run migrations
-docker exec -it nexcreate-app php artisan migrate
+# Run migrations + seed roles/categories
+docker exec -it nexcreate-app php artisan migrate --seed
 ```
 
-### 5. Access the application
+> **Admin account:** set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env`
+> before seeding — there is no default admin password. If unset, the seeder
+> skips admin creation (re-run later with
+> `php artisan db:seed --class=AdminUserSeeder`).
+
+### 5. Run the tests
+
+```bash
+docker exec -it nexcreate-app php artisan test
+```
+
+### 6. Access the application
 
 - **Application**: http://localhost:8000
 - **API**: http://localhost:8000/api
@@ -152,6 +163,9 @@ Key environment variables in `backend/.env`:
 | `REDIS_HOST` | Redis host | redis |
 | `STRIPE_KEY` | Stripe public key | - |
 | `STRIPE_SECRET` | Stripe secret key | - |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (**required** — webhook returns 503 without it) | - |
+| `ADMIN_EMAIL` | Initial admin email (seeder) | admin@nexcreate.no |
+| `ADMIN_PASSWORD` | Initial admin password (seeder; **no default**) | - |
 
 ---
 

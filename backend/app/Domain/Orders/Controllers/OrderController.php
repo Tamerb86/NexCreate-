@@ -80,7 +80,7 @@ class OrderController extends Controller
         }
 
         // Check if service is active
-        if ($service->status !== 'active') {
+        if ($service->status !== Service::STATUS_ACTIVE) {
             return response()->json([
                 'success' => false,
                 'message' => 'This service is not available.',

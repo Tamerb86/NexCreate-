@@ -58,16 +58,16 @@ COPY docker/php.ini /usr/local/etc/php/conf.d/custom.ini
 # Copy application files
 COPY backend/ /var/www/html/
 
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html/storage \
-    && chmod -R 755 /var/www/html/bootstrap/cache
+# Ensure writable runtime directories exist, then set permissions
+RUN mkdir -p storage/app/public storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chown -R www-data:www-data /var/www/html \
+    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 # Install Composer dependencies
 RUN composer install --optimize-autoloader --no-dev --no-interaction --no-progress
 
-# Generate application key if not exists
-RUN if [ ! -f .env ]; then cp .env.example .env && php artisan key:generate; fi
+# Note: APP_KEY and .env are provided at runtime (compose env / orchestrator
+# secrets) — never baked into the image.
 
 # Expose port 9000 for PHP-FPM
 EXPOSE 9000

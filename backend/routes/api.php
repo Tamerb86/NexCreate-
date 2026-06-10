@@ -64,9 +64,9 @@ Route::prefix('v1')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('auth')->group(function () {
-        // Public routes
-        Route::post('register', [RegisterController::class, 'store']);
-        Route::post('login', [LoginController::class, 'store']);
+        // Public routes (throttled against brute-force / mass signup)
+        Route::post('register', [RegisterController::class, 'store'])->middleware('throttle:10,1');
+        Route::post('login', [LoginController::class, 'store'])->middleware('throttle:6,1');
 
         // Protected routes
         Route::middleware('auth:sanctum')->group(function () {
@@ -144,8 +144,8 @@ Route::prefix('v1')->group(function () {
     |--------------------------------------------------------------------------
     */
     
-    // Stripe Webhook (No Auth - Stripe calls this)
-    Route::post('payments/webhook', [WebhookController::class, 'handle']);
+    // Stripe Webhook (No Auth - Stripe calls this; signature-verified + throttled)
+    Route::post('payments/webhook', [WebhookController::class, 'handle'])->middleware('throttle:120,1');
 
     // Protected Payment Routes
     Route::middleware('auth:sanctum')->group(function () {

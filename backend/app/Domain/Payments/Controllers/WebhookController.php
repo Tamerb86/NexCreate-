@@ -31,18 +31,23 @@ class WebhookController extends Controller
         $sigHeader = $request->header('Stripe-Signature');
         $webhookSecret = config('stripe.webhook_secret');
 
+        // Signature verification is mandatory: without it anyone can forge
+        // payment events and mark unpaid orders as paid.
+        if (!$webhookSecret) {
+            report(new Exception('Stripe webhook rejected: STRIPE_WEBHOOK_SECRET is not configured.'));
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Webhook not configured.',
+            ], 503);
+        }
+
         try {
-            // Verify webhook signature
-            if ($webhookSecret) {
-                $event = Webhook::constructEvent(
-                    $payload,
-                    $sigHeader,
-                    $webhookSecret
-                );
-            } else {
-                // For testing without signature verification
-                $event = json_decode($payload);
-            }
+            $event = Webhook::constructEvent(
+                $payload,
+                $sigHeader,
+                $webhookSecret
+            );
 
             // Handle the event
             $result = $this->paymentService->handleWebhookEvent($event);
@@ -66,9 +71,11 @@ class WebhookController extends Controller
             ], 400);
 
         } catch (Exception $e) {
+            report($e);
+
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage(),
+                'error' => 'Webhook processing failed.',
             ], 500);
         }
     }
